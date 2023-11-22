@@ -10,28 +10,29 @@ alias T = Tensor[f64]
 
 struct SineActivation:
     var w0: Int
-    var batch_size: Int
-    var dim: Int
     var input_record: T
 
-    fn __init__(inout self, w0: Int, batch_size: Int, dim: Int):
+    fn __init__(inout self, w0: Int):
         self.w0 = w0
-        self.batch_size = batch_size
-        self.dim = dim
-        self.input_record = T(batch_size, dim)
+        self.input_record = T()  # have to initialize?
 
     fn forward(inout self, x: T) -> T:
-        var out = T(self.batch_size, self.dim)
-        for b in range(self.batch_size):
-            for j in range(self.dim):
+        let batch_size = x.shape()[0]
+        let dim = x.shape()[1]
+        var out = T(batch_size, dim)
+        self.input_record = T(batch_size, dim)
+        for b in range(batch_size):
+            for j in range(dim):
                 self.input_record[Index(b, j)] = x[b, j]
                 out[Index(b, j)] = math.sin(x[b, j])
         return out
 
     fn backward(self, grad: T) -> T:
-        var out = T(self.batch_size, self.dim)
-        for b in range(self.batch_size):
-            for j in range(self.dim):
+        let batch_size = grad.shape()[0]
+        let dim = grad.shape()[1]
+        var out = T(batch_size, dim)
+        for b in range(batch_size):
+            for j in range(dim):
                 out[Index(b, j)] = (
                     grad[b, j] * self.w0 * math.cos(self.w0 * self.input_record[b, j])
                 )
@@ -42,28 +43,29 @@ struct SineActivation:
 
 
 struct SigmoidActivation:
-    var batch_size: Int
-    var dim: Int
     var output_record: T
 
-    fn __init__(inout self, batch_size: Int, dim: Int):
-        self.batch_size = batch_size
-        self.dim = dim
-        self.output_record = T(batch_size, dim)
+    fn __init__(inout self, dim: Int):
+        self.output_record = T()
 
     fn forward(inout self, x: T) -> T:
-        var out = T(self.batch_size, self.dim)
-        for b in range(self.batch_size):
-            for j in range(self.dim):
+        let batch_size = x.shape()[0]
+        let dim = x.shape()[1]
+        var out = T(batch_size, dim)
+        self.output_record = T(batch_size, dim)
+        for b in range(batch_size):
+            for j in range(dim):
                 let sigmoid = 1 / (1 + math.exp(x[b, j]))
                 self.output_record[Index(b, j)] = sigmoid
                 out[Index(b, j)] = sigmoid
         return out
 
     fn backward(self, grad: T) -> T:
-        var out = T(self.batch_size, self.dim)
-        for b in range(self.batch_size):
-            for j in range(self.dim):
+        let batch_size = grad.shape()[0]
+        let dim = grad.shape()[1]
+        var out = T(batch_size, dim)
+        for b in range(batch_size):
+            for j in range(dim):
                 out[Index(b, j)] = (
                     grad[b, j]
                     * self.output_record[b, j]
@@ -76,7 +78,6 @@ struct SigmoidActivation:
 
 
 struct LinearLayer:
-    var batch_size: Int
     var dim_in: Int
     var dim_out: Int
     var weight: T
@@ -85,19 +86,20 @@ struct LinearLayer:
     var bias_grad: T
     var input_record: T
 
-    fn __init__(inout self, batch_size: Int, dim_in: Int, dim_out: Int):
-        self.batch_size = batch_size
+    fn __init__(inout self, dim_in: Int, dim_out: Int):
         self.dim_in = dim_in
         self.dim_out = dim_out
         self.weight = T(dim_out, dim_in)
         self.bias = T(dim_out)
         self.weight_grad = T(dim_out, dim_in)
         self.bias_grad = T(dim_out)
-        self.input_record = T(batch_size, dim_in)
+        self.input_record = T()
 
     fn forward(inout self, x: T) -> T:
-        var out = T(self.batch_size, self.dim_out)
-        for b in range(self.batch_size):
+        let batch_size = x.shape()[0]
+        var out = T(batch_size, self.dim_out)
+        self.input_record = T(batch_size, self.dim_in)
+        for b in range(batch_size):
             for j in range(self.dim_in):
                 self.input_record[Index(b, j)] = x[b, j]
                 for i in range(self.dim_out):
@@ -105,8 +107,9 @@ struct LinearLayer:
         return out
 
     fn backward(inout self, grad: T) -> T:
-        var out = T(self.batch_size, self.dim_out)
-        for b in range(self.batch_size):
+        let batch_size = grad.shape()[0]
+        var out = T(batch_size, self.dim_out)
+        for b in range(batch_size):
             for i in range(self.dim_out):
                 # dl/db = b * grad
                 self.bias_grad[i] += grad[b, i]
@@ -147,10 +150,10 @@ struct SirenLayer:
     var linear: LinearLayer
     var w0: Int
 
-    fn __init__(inout self, batch_size: Int, in_dim: Int, out_dim: Int, w0: Int = 1):
+    fn __init__(inout self, in_dim: Int, out_dim: Int, w0: Int = 1):
         self.w0 = w0
-        self.activation = SineActivation(batch_size, out_dim, w0)
-        self.linear = LinearLayer(batch_size, in_dim, out_dim)
+        self.activation = SineActivation(w0)
+        self.linear = LinearLayer(in_dim, out_dim)
         self.linear.initialize_weight()
 
     fn forward(inout self, x: T) -> T:
@@ -191,21 +194,21 @@ struct Siren:
         in_dim: Int = 2,
         hidden_dim: Int = 48,
         out_dim: Int = 3,
+        hidden_layers: Int = 1,
     ):
-        self.layer1 = SirenLayer(batch_size, in_dim, hidden_dim, w0=30)
-        self.layer2 = SirenLayer(batch_size, hidden_dim, hidden_dim, w0=1)
-        self.layer3 = SirenLayer(batch_size, hidden_dim, hidden_dim, w0=1)
-        self.layer4 = SirenLayer(batch_size, hidden_dim, hidden_dim, w0=1)
-        self.layer5 = SirenLayer(batch_size, hidden_dim, out_dim, w0=0)
-        self.sigmoid = SigmoidActivation(batch_size, out_dim)
+        self.layer1 = SirenLayer(in_dim, hidden_dim, w0=30)
+        self.layer2 = SirenLayer(hidden_dim, hidden_dim, w0=1)
+        self.layer3 = SirenLayer(hidden_dim, hidden_dim, w0=1)
+        self.layer4 = SirenLayer(hidden_dim, hidden_dim, w0=1)
+        self.layer5 = SirenLayer(hidden_dim, out_dim, w0=0)
+        self.sigmoid = SigmoidActivation(out_dim)
 
     fn forward(inout self, x: T) -> T:
         let out1 = self.layer1(x)
         let out2 = self.layer2(out1)
-        #let out3 = self.layer3(out2)
-        #let out4 = self.layer4(out3)
-        #let out5 = self.layer5(out4)
-        let out5=out2
+        let out3 = self.layer3(out2)
+        let out4 = self.layer4(out3)
+        let out5 = self.layer5(out4)
         let outs = self.sigmoid(out5)
         return outs
 
@@ -267,7 +270,7 @@ def visualize_logo_image(tensor: T):
                 num += tensor[i, j, k]
                 numpy_array.itemset((i, j, k), tensor[i, j, k])
                 denom += 1
-    print('array stats')
+    print("array stats")
     print(numpy_array.max())
     print(numpy_array.mean())
     plt.imshow(numpy_array)
@@ -279,8 +282,10 @@ alias BATCH_SIZE = 3000
 
 
 def main():
-    var siren = Siren(BATCH_SIZE, 2, 96, 3)
+    var siren = Siren(2, 96, 3)
     let image = load_logo_image()
+
+    # train
     for epoch_idx in range(1000):
         siren.zero_grad()
         x = T(BATCH_SIZE, 2)
@@ -298,23 +303,23 @@ def main():
         var sum_diff: Float64 = 0
         for i in range(BATCH_SIZE):
             for j in range(3):
-                grad[Index(i, j)] = y[i, j] - yhat[i, j]  / BATCH_SIZE
+                grad[Index(i, j)] = y[i, j] - yhat[i, j] / BATCH_SIZE
                 sum_diff += math.min((y[i, j] - yhat[i, j]) ** 2, 10)
         print("avg diff")
         print(sum_diff / BATCH_SIZE / 3)
         siren.backward(grad)
         siren.step()
 
-    test_image = T(224, 224, 3)
-    # rofl have to loop through i nbatches of 224
-    # since this doesn't support dynamic batch size
-    var maximum: Float64 = 0
+    # test
+    var test_input = T(224 * 224, 2)
     for i in range(224):
-        test_input = T(224, 2)
         for j in range(224):
             test_input[Index(j, 0)] = i / 224
             test_input[Index(j, 1)] = j / 224
-        test_out = siren(test_input)
+    test_out = siren(test_input)
+    var test_image = T(224, 224, 3)
+    var maximum: Float64 = 0
+    for i in range(224):
         for j in range(224):
             for k in range(3):
                 out = test_out[j, k]
