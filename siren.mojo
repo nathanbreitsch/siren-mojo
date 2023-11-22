@@ -286,7 +286,7 @@ def main():
     let image = load_logo_image()
 
     # train
-    for epoch_idx in range(1000):
+    for iteration_idx in range(1000):
         siren.zero_grad()
         x = T(BATCH_SIZE, 2)
         y = T(BATCH_SIZE, 3)
@@ -303,10 +303,10 @@ def main():
         var sum_diff: Float64 = 0
         for i in range(BATCH_SIZE):
             for j in range(3):
-                grad[Index(i, j)] = y[i, j] - yhat[i, j] / BATCH_SIZE
-                sum_diff += math.min((y[i, j] - yhat[i, j]) ** 2, 10)
-        print("avg diff")
-        print(sum_diff / BATCH_SIZE / 3)
+                diff = (y[i, j] - yhat[i, j]) / BATCH_SIZE
+                grad[Index(i, j)] = diff
+                sum_diff += math.min(diff**2, 10)
+        print("iteration:", iteration_idx, "avg diff: ", sum_diff / 3)
         siren.backward(grad)
         siren.step()
 
@@ -314,17 +314,20 @@ def main():
     var test_input = T(224 * 224, 2)
     for i in range(224):
         for j in range(224):
-            test_input[Index(j, 0)] = i / 224
-            test_input[Index(j, 1)] = j / 224
+            let idx = i * 224 + j
+            test_input[Index(idx, 0)] = i / 224
+            test_input[Index(idx, 1)] = j / 224
     test_out = siren(test_input)
     var test_image = T(224, 224, 3)
     var maximum: Float64 = 0
     for i in range(224):
         for j in range(224):
             for k in range(3):
-                out = test_out[j, k]
+                let idx = i * 224 + j
+                out = test_out[idx, k]
                 test_image[Index(i, j, k)] = out
-                maximum = math.max(out, maximum)
+                let tdiff = (out - image[i, j, k]) ** 2
+                maximum = math.max(tdiff, maximum)
 
     print("max test val")
     print(maximum)
